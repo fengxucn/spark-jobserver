@@ -776,17 +776,45 @@ class WebApi(system: ActorSystem,
                                       contextConfig: Config,
                                       classPath: String): Option[ActorRef] = {
     import ContextSupervisor._
-    val msg =
-      if (context.isDefined) {
-        GetContext(context.get)
-      } else {
-        StartAdHocContext(classPath, contextConfig)
+
+    if (context.isDefined) {
+      val future = (supervisor ? GetContext(context.get)) (contextTimeout.seconds)
+      Await.result(future, contextTimeout.seconds) match {
+        case (manager: ActorRef) => Some(manager)
+        case NoSuchContext => {
+          if (contextConfig.hasPath("keep-runing-contexts") &&
+            contextConfig.getStringList("keep-runing-contexts").contains(context.get)){
+            val name = context.get
+            //Synchronizing on an intern'd String might not be a good idea at all
+            name.intern().synchronized{
+              val fut = (supervisor ? GetContext(context.get)) (contextTimeout.seconds)
+              Await.result(fut, contextTimeout.seconds) match {
+                case (manager: ActorRef) => Some(manager)
+                case NoSuchContext => {
+                  val fu = (supervisor ? StartContext(name, contextConfig)) (contextTimeout.seconds)
+                  Await.result(fu, contextTimeout.seconds) match {
+                    case (manager: ActorRef) => Some(manager)
+                    case NoSuchContext => None
+                    case ContextInitError(err) => throw new RuntimeException(err)
+                  }
+                }
+                case ContextInitError(err) => throw new RuntimeException(err)
+              }
+            }
+          } else {
+            None
+          }
+        }
+        case ContextInitError(err) => throw new RuntimeException(err)
       }
-    val future = (supervisor ? msg)(contextTimeout.seconds)
-    Await.result(future, contextTimeout.seconds) match {
-      case (manager: ActorRef) => Some(manager)
-      case NoSuchContext => None
-      case ContextInitError(err) => throw new RuntimeException(err)
+
+    } else {
+      val future = (supervisor ? StartAdHocContext(classPath, contextConfig))(contextTimeout.seconds)
+      Await.result(future, contextTimeout.seconds) match {
+        case (manager: ActorRef) => Some(manager)
+        case NoSuchContext => None
+        case ContextInitError(err) => throw new RuntimeException(err)
+      }
     }
   }
 

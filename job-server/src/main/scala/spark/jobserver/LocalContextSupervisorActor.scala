@@ -28,6 +28,7 @@ object ContextSupervisor {
   case class AddContext(name: String, contextConfig: Config)
   case class StartAdHocContext(classPath: String, contextConfig: Config)
   case class GetContext(name: String) // returns JobManager, JobResultActor
+  case class StartContext(name: String, contextConfig: Config)
   case class GetResultActor(name: String)  // returns JobResultActor
   case class StopContext(name: String, force: Boolean = false)
   case class GetSparkContexData(name: String)
@@ -152,6 +153,15 @@ class LocalContextSupervisorActor(dao: ActorRef, dataManagerActor: ActorRef) ext
       // Create JobManagerActor and JobResultActor
       startContext(contextName, mergedConfig, true, contextTimeout) { contextMgr =>
         originator ! contexts(contextName)
+      } { err =>
+        originator ! ContextInitError(err)
+      }
+
+    case StartContext(name, contextConfig) =>
+      val originator = sender
+      val mergedConfig = contextConfig.withFallback(defaultContextConfig)
+      startContext(name, mergedConfig, false) { ref =>
+        originator ! ref
       } { err =>
         originator ! ContextInitError(err)
       }

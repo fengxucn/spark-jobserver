@@ -244,6 +244,15 @@ class AkkaClusterSupervisorActor(daoActor: ActorRef, dataManagerActor: ActorRef,
         case (false, _) => sender ! UnexpectedError
       }
 
+    case StartContext(name, contextConfig) =>
+      val originator = sender
+      val mergedConfig = contextConfig.withFallback(defaultContextConfig)
+      startContext(name, mergedConfig, false) { ref =>
+        originator ! ref
+      } { err =>
+        originator ! ContextInitError(err)
+      }
+
     case StartAdHocContext(classPath, contextConfig) =>
       val originator = sender
       val mergedConfig = contextConfig.withFallback(defaultContextConfig)
